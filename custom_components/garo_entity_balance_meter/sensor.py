@@ -29,6 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     auth = aiohttp.BasicAuth(entry.data["username"], entry.data["password"])
     host = entry.data["host"]
     scan_interval = timedelta(seconds=entry.data.get("scan_interval", 900))
+    ignore_tls = entry.data.get("ignore_tls_errors", False)
 
 
     async def fetch_data():
@@ -36,7 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             async with async_timeout.timeout(10):
                 url = f"https://{host}/status/energy-meter"
                 _LOGGER.debug("Requesting data from %s", url)
-                async with session.get(url, auth=auth, ssl=False) as response:
+                async with session.get(url, auth=auth, ssl=not ignore_tls) as response:
                     if response.status != 200:
                         raise UpdateFailed(f"HTTP error {response.status}")
                     result = await response.json()
