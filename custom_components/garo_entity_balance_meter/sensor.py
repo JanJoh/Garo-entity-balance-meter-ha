@@ -29,7 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     auth = aiohttp.BasicAuth(entry.data["username"], entry.data["password"])
     host = entry.data["host"]
     scan_interval = timedelta(seconds=entry.data.get("scan_interval", 900))
-    ignore_tls = entry.data.get("ignore_tls_errors", False)
+    ignore_tls = entry.data.get("ignore_tls_errors", True)
 
 
     async def fetch_data():
