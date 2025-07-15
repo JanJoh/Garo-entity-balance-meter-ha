@@ -1,76 +1,75 @@
 import logging
 import aiohttp
 import async_timeout
+from datetime import timedelta
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.typing import HomeAssistantType
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed, CoordinatorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 _LOGGER = logging.getLogger(__name__)
 
 SENSOR_TYPES = {
-    "power": ("Power Consumption", "W"),
-    "energy": ("Energy Total", "Wh"),
-    "current_l1": ("Current L1", "A"),
-    "current_l2": ("Current L2", "A"),
-    "current_l3": ("Current L3", "A"),
-    "voltage_l1": ("Voltage L1", "V"),
-    "voltage_l2": ("Voltage L2", "V"),
-    "voltage_l3": ("Voltage L3", "V"),
+    "power": ("Power Consumption", "W", "power", "measurement"),
+    "energy": ("Energy Total", "Wh", "energy", "total_increasing"),
+    "current_l1": ("Current L1", "A", "current", "measurement"),
+    "current_l2": ("Current L2", "A", "current", "measurement"),
+    "current_l3": ("Current L3", "A", "current", "measurement"),
+    "voltage_l1": ("Voltage L1", "V", "voltage", "measurement"),
+    "voltage_l2": ("Voltage L2", "V", "voltage", "measurement"),
+    "voltage_l3": ("Voltage L3", "V", "voltage", "measurement"),
 }
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    host = config.get("host")
-    username = config.get("username")
-    password = config.get("password")
-    scan_interval = config.get("scan_interval", 900)
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+    _LOGGER.debug("Setting up Garo Entity Balance Meter sensors from config entry")
 
     session = aiohttp.ClientSession()
-    auth = aiohttp.BasicAuth(username, password)
+    auth = aiohttp.BasicAuth(entry.data["username"], entry.data["password"])
+    host = entry.data["host"]
+    scan_interval = timedelta(seconds=entry.data.get("scan_interval", 900))
+
 
     async def fetch_data():
         try:
             async with async_timeout.timeout(10):
                 url = f"https://{host}/status/energy-meter"
+                _LOGGER.debug("Requesting data from %s", url)
                 async with session.get(url, auth=auth, ssl=False) as response:
                     if response.status != 200:
                         raise UpdateFailed(f"HTTP error {response.status}")
-                    return await response.json()
+                    result = await response.json()
+                    _LOGGER.debug("Received data: %s", result)
+                    return result
         except Exception as e:
             _LOGGER.error("Failed to fetch data: %s", e)
-            raise UpdateFailed(f"Error: {e}")
+            raise UpdateFailed(f"Error fetching data: {e}")
 
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
         name="Garo Entity Balance Meter",
         update_method=fetch_data,
-        update_interval=scan_interval
+        update_interval=scan_interval,
     )
 
     await coordinator.async_refresh()
 
     sensors = [GaroSensor(coordinator, key) for key in SENSOR_TYPES]
-    async_add_entities(sensors, True)
+    async_add_entities(sensors)
 
 
-class GaroSensor(SensorEntity):
+class GaroSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, sensor_type):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self.type = sensor_type
-        self._attr_name = SENSOR_TYPES[sensor_type][0]
-        self._attr_native_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
-        self._attr_device_class = self._get_device_class(sensor_type)
+        name, unit, device_class, state_class = SENSOR_TYPES[sensor_type]
+        self._attr_name = name
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
         self._attr_unique_id = f"garo_entity_balance_meter_{sensor_type}"
-
-        if sensor_type == "energy":
-            self._attr_state_class = "total_increasing"
-        else:
-            self._attr_state_class = "measurement"
-
         self._attr_device_info = {
             "identifiers": {("garo_entity_balance_meter", "main_meter")},
             "name": "Garo Entity Balance Meter",
@@ -79,20 +78,9 @@ class GaroSensor(SensorEntity):
             "sw_version": "1.0"
         }
 
-    def _get_device_class(self, sensor_type):
-        if sensor_type.startswith("current"):
-            return "current"
-        if sensor_type.startswith("voltage"):
-            return "voltage"
-        if sensor_type == "power":
-            return "power"
-        if sensor_type == "energy":
-            return "energy"
-        return None
-
     @property
     def native_value(self):
-        data = self.coordinator.data
+        data = self.coordinator.data or []
         for item in data:
             for val in item.get("sampledValue", []):
                 measurand = val.get("measurand")
@@ -111,10 +99,3 @@ class GaroSensor(SensorEntity):
                     if phase == phase_map[self.type]:
                         return float(val["value"])
         return None
-
-    @property
-    def available(self):
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        await self.coordinator.async_request_refresh()
