@@ -16,3 +16,9 @@ Custom Home Assistant integration for monitoring energy and power data from a Ga
 3. Category: **Integration**
 4. Install, then restart Home Assistant
 
+## Configuration
+You need to aquire the credentials for basic auth. These are on a sticker
+on the physical device. Typically in the format 
+Username **GaroLI-xxxxxxxxx**
+Password **xxxx-xxxx-xxxx** (Please note that the password should be all lower case, regardless on what is printed on the sticker.
+
