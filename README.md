@@ -26,3 +26,5 @@ on the physical device. Typically in the format
 Username **GaroLI-xxxxxxxxx**
 Password **xxxx-xxxx-xxxx** (Please note that the password should be all lower case, regardless on what is printed on the sticker.
 
+- The **Energy Total** sensor plugs nicely in as a grind consumption sensor. But please note that it may take a while for the new statistical sensor shows up in HA. 
+
