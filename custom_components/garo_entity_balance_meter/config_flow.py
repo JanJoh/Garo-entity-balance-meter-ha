@@ -10,7 +10,7 @@ DATA_SCHEMA = vol.Schema(
         vol.Required("username"): str,
         vol.Required("password"): str,
         vol.Optional("scan_interval", default=15): cv.positive_int,
-        vol.Optional("ignore_tls_errors", default=False): bool,
+        vol.Optional("ignore_tls_errors", default=True): bool,
     }
 )
 
