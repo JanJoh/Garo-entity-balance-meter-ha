@@ -9,7 +9,7 @@ DATA_SCHEMA = vol.Schema(
         vol.Required("host"): str,
         vol.Required("username"): str,
         vol.Required("password"): str,
-        vol.Optional("scan_interval", default=900): cv.positive_int,
+        vol.Optional("scan_interval", default=15): cv.positive_int,
     }
 )
 
