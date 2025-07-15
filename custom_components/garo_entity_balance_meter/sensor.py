@@ -22,30 +22,36 @@ SENSOR_TYPES = {
     "voltage_l3": ("Voltage L3", "V", "voltage", "measurement"),
 }
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     _LOGGER.debug("Setting up Garo Entity Balance Meter sensors from config entry")
 
-    session = aiohttp.ClientSession()
-    auth = aiohttp.BasicAuth(entry.data["username"], entry.data["password"])
-    host = entry.data["host"]
-    scan_interval = timedelta(seconds=entry.data.get("scan_interval", 900))
-    ignore_tls = entry.data.get("ignore_tls_errors", True)
+    # Pull from options if available, fallback to data
+    options = entry.options
+    data = entry.data
 
+    host = options.get("host", data.get("host"))
+    username = options.get("username", data.get("username"))
+    password = options.get("password", data.get("password"))
+    scan_interval = timedelta(seconds=options.get("scan_interval", data.get("scan_interval", 900)))
+    ignore_tls = options.get("ignore_tls_errors", data.get("ignore_tls_errors", True))
+
+    session = aiohttp.ClientSession()
+    auth = aiohttp.BasicAuth(username, password)
 
     async def fetch_data():
         try:
+            url = f"https://{host}/meter_data.json"
+            ssl_context = False if ignore_tls else None
+
             async with async_timeout.timeout(10):
-                url = f"https://{host}/status/energy-meter"
-                _LOGGER.debug("Requesting data from %s", url)
-                async with session.get(url, auth=auth, ssl=not ignore_tls) as response:
+                async with session.get(url, auth=auth, ssl=ssl_context) as response:
                     if response.status != 200:
                         raise UpdateFailed(f"HTTP error {response.status}")
-                    result = await response.json()
-                    _LOGGER.debug("Received data: %s", result)
-                    return result
-        except Exception as e:
-            _LOGGER.error("Failed to fetch data: %s", e)
-            raise UpdateFailed(f"Error fetching data: {e}")
+                    return await response.json()
+
+        except Exception as err:
+            raise UpdateFailed(f"Error fetching data: {err}") from err
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -55,48 +61,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         update_interval=scan_interval,
     )
 
-    await coordinator.async_refresh()
+    await coordinator.async_config_entry_first_refresh()
 
-    sensors = [GaroSensor(coordinator, key) for key in SENSOR_TYPES]
-    async_add_entities(sensors)
+    entities = [
+        GaroSensor(coordinator, sensor_type)
+        for sensor_type in SENSOR_TYPES
+    ]
+    async_add_entities(entities)
 
 
 class GaroSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, sensor_type):
         super().__init__(coordinator)
-        self.type = sensor_type
-        name, unit, device_class, state_class = SENSOR_TYPES[sensor_type]
-        self._attr_name = name
-        self._attr_native_unit_of_measurement = unit
-        self._attr_device_class = device_class
-        self._attr_state_class = state_class
-        self._attr_unique_id = f"garo_entity_balance_meter_{sensor_type}"
-        self._attr_device_info = {
-            "identifiers": {("garo_entity_balance_meter", "main_meter")},
-            "name": "Garo Entity Balance Meter",
-            "manufacturer": "Garo",
-            "model": "DLB Energy Meter",
-            "sw_version": "1.0"
-        }
+        self._sensor_type = sensor_type
+        self._attr_name = SENSOR_TYPES[sensor_type][0]
+        self._attr_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
+        self._attr_device_class = SENSOR_TYPES[sensor_type][2]
+        self._attr_state_class = SENSOR_TYPES[sensor_type][3]
 
     @property
-    def native_value(self):
-        data = self.coordinator.data or []
-        for item in data:
-            for val in item.get("sampledValue", []):
-                measurand = val.get("measurand")
-                phase = val.get("phase", "")
+    def unique_id(self):
+        return f"garo_{self._sensor_type}"
 
-                if self.type == "power" and measurand == "Power.Active.Import":
-                    return float(val["value"])
-                if self.type == "energy" and measurand == "Energy.Active.Import.Register":
-                    return float(val["value"])
-                if self.type.startswith("current") and measurand == "Current.Import":
-                    phase_map = {"current_l1": "L1", "current_l2": "L2", "current_l3": "L3"}
-                    if phase == phase_map[self.type]:
-                        return float(val["value"])
-                if self.type.startswith("voltage") and measurand == "Voltage":
-                    phase_map = {"voltage_l1": "L1-N", "voltage_l2": "L2-N", "voltage_l3": "L3-N"}
-                    if phase == phase_map[self.type]:
-                        return float(val["value"])
-        return None
+    @property
+    def state(self):
+        return self.coordinator.data.get(self._sensor_type)
