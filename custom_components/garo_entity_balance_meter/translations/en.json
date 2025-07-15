@@ -1,0 +1,16 @@
+{
+  "title": "Garo Entity Balance Meter",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Garo Entity Balance Meter",
+        "data": {
+          "host": "Host",
+          "username": "Username",
+          "password": "Password",
+          "scan_interval": "Scan Interval (seconds)"
+        }
+      }
+    }
+  }
+}
