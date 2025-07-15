@@ -1,6 +1,6 @@
 # Garo Entity Balance Meter
 
-Custom Home Assistant integration for monitoring energy and power data from a Garo EV Charger HAN meter.
+Custom Home Assistant integration for monitoring energy and power data from a Garo Entity Balance unit.
 (Yeah yeah, 80% ChatGPT code...)
 
 ## Features
