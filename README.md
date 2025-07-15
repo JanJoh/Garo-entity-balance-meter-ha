@@ -4,6 +4,7 @@ Custom Home Assistant integration for monitoring energy and power data from a Ga
 
 ## Features
 
+- Local API access. No cloud requirement.
 - Power, voltage, current sensors (L1, L2, L3)
 - Total grid consumption (energy) compatible with Energy dashboard
 - Configurable polling interval
@@ -17,6 +18,7 @@ Custom Home Assistant integration for monitoring energy and power data from a Ga
 4. Install, then restart Home Assistant
 
 ## Configuration
+The reqiested IP is the IP of your Garo Entity Load balancer, **not** the IP of the EV Charger.
 You need to aquire the credentials for basic auth. These are on a sticker
 on the physical device. Typically in the format 
 Username **GaroLI-xxxxxxxxx**
