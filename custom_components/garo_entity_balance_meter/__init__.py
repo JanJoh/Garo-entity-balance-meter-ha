@@ -1,7 +1,11 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from .options import GaroOptionsFlowHandler
 
 DOMAIN = "garo_entity_balance_meter"
+
+async def async_get_options_flow(config_entry):
+    return GaroOptionsFlowHandler(config_entry)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
