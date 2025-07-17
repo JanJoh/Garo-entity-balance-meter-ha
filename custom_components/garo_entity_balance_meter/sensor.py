@@ -15,12 +15,12 @@ _LOGGER = logging.getLogger(__name__)
 SENSOR_TYPES = {
     "power": ("Power Consumption", "W", "power", "measurement"),
     "energy": ("Energy Total", "Wh", "energy", "total_increasing"),
-    "current_l1_3": ("Current L1", "A", "current", "measurement"),
-    "current_l2_3": ("Current L2", "A", "current", "measurement"),
-    "current_l3_3": ("Current L3", "A", "current", "measurement"),
-    "voltage_l1_3": ("Voltage L1", "V", "voltage", "measurement"),
-    "voltage_l2_3": ("Voltage L2", "V", "voltage", "measurement"),
-    "voltage_l3_3": ("Voltage L3", "V", "voltage", "measurement"),
+    "current_l1": ("Current L1", "A", "current", "measurement"),
+    "current_l2": ("Current L2", "A", "current", "measurement"),
+    "current_l3": ("Current L3", "A", "current", "measurement"),
+    "voltage_l1": ("Voltage L1", "V", "voltage", "measurement"),
+    "voltage_l2": ("Voltage L2", "V", "voltage", "measurement"),
+    "voltage_l3": ("Voltage L3", "V", "voltage", "measurement"),
 }
 
 
@@ -85,18 +85,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
                             if measurand == "Current.Import":
                                 if phase == "L1":
-                                    data["current_l1_3"] = value
+                                    data["current_l1"] = value
                                 elif phase == "L2":
-                                    data["current_l2_3"] = value
+                                    data["current_l2"] = value
                                 elif phase == "L3":
-                                    data["current_l3_3"] = value
+                                    data["current_l3"] = value
                             elif measurand == "Voltage":
                                 if phase == "L1-N":
-                                    data["voltage_l1_3"] = value
+                                    data["voltage_l1"] = value
                                 elif phase == "L2-N":
-                                    data["voltage_l2_3"] = value
+                                    data["voltage_l2"] = value
                                 elif phase == "L3-N":
-                                    data["voltage_l3_3"] = value
+                                    data["voltage_l3"] = value
                             elif measurand == "Energy.Active.Import.Register":
                                 data["energy"] = value
                             elif measurand == "Power.Active.Import":
