@@ -26,7 +26,7 @@ SENSOR_TYPES = {
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    _LOGGER.warning("GARO DEBUG: async_setup_entry called")
+    _LOGGER.debug("GARO DEBUG: async_setup_entry called")
 
     options = entry.options
     data = entry.data
@@ -41,20 +41,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     auth = aiohttp.BasicAuth(username, password)
 
     async def fetch_data():
-        _LOGGER.warning("GARO DEBUG: fetch_data called")
+        _LOGGER.debug("GARO DEBUG: fetch_data called")
         try:
             url = f"https://{host}/status/energy-meter"
             ssl_context = False if ignore_tls else None
-            _LOGGER.warning("GARO DEBUG: Attempting request to %s", url)
-            _LOGGER.warning("GARO DEBUG: SSL = %s", ssl_context)
+            _LOGGER.debug("GARO DEBUG: Attempting request to %s", url)
+            _LOGGER.debug("GARO DEBUG: SSL = %s", ssl_context)
 
             async with async_timeout.timeout(10):
-                _LOGGER.warning("GARO DEBUG: Entering session.get()...")
+                _LOGGER.debug("GARO DEBUG: Entering session.get()...")
                 async with session.get(url, auth=auth, ssl=ssl_context) as response:
-                    _LOGGER.warning("GARO DEBUG: Got response with status %s", response.status)
+                    _LOGGER.debug("GARO DEBUG: Got response with status %s", response.status)
 
                     raw = await response.json()
-                    _LOGGER.warning("GARO DEBUG: RAW JSON = %s", raw)
+                    _LOGGER.debug("GARO DEBUG: RAW JSON = %s", raw)
 
                     data = {}
 
@@ -63,18 +63,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         return {}
 
                     for idx, entry in enumerate(raw):
-                        _LOGGER.warning("GARO DEBUG: Entry #%d = %s", idx, entry)
+                        _LOGGER.debug("GARO DEBUG: Entry #%d = %s", idx, entry)
                         if not isinstance(entry, dict):
-                            _LOGGER.warning("GARO DEBUG: Skipping non-dict entry: %s", entry)
+                            _LOGGER.debug("GARO DEBUG: Skipping non-dict entry: %s", entry)
                             continue
 
                         sampled = entry.get("sampledValue", [])
-                        _LOGGER.warning("GARO DEBUG: sampledValue block = %s", sampled)
+                        _LOGGER.debug("GARO DEBUG: sampledValue block = %s", sampled)
                         for item in sampled:
                             measurand = item.get("measurand")
                             phase = item.get("phase")
                             value = item.get("value")
-                            _LOGGER.warning("GARO DEBUG: measurand=%s, phase=%s, value=%s", measurand, phase, value)
+                            _LOGGER.debug("GARO DEBUG: measurand=%s, phase=%s, value=%s", measurand, phase, value)
 
                             if value is None:
                                 continue
@@ -104,15 +104,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                                 data["power"] = value
 
                     if not data:
-                        _LOGGER.warning("GARO DEBUG: Parsed data dictionary is EMPTY")
+                        _LOGGER.debug("GARO DEBUG: Parsed data dictionary is EMPTY")
                     else:
-                        _LOGGER.warning("GARO DEBUG: Final parsed data = %s", data)
+                        _LOGGER.debug("GARO DEBUG: Final parsed data = %s", data)
 
                     return data
 
         except Exception as err:
             _LOGGER.error("GARO DEBUG: Exception in fetch_data: %s", err)
-            _LOGGER.warning("GARO DEBUG: Traceback:\n%s", traceback.format_exc())
+            _LOGGER.debug("GARO DEBUG: Traceback:\n%s", traceback.format_exc())
             return {}
 
     coordinator = DataUpdateCoordinator(
@@ -126,10 +126,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception as e:
-        _LOGGER.warning("Initial data fetch failed: %s", e)
+        _LOGGER.debug("Initial data fetch failed: %s", e)
 
     entities = [GaroSensor(coordinator, sensor_type, entry) for sensor_type in SENSOR_TYPES]
-    _LOGGER.warning("GARO DEBUG: Registered sensor types: %s", [e._sensor_type for e in entities])
+    _LOGGER.debug("GARO DEBUG: Registered sensor types: %s", [e._sensor_type for e in entities])
     async_add_entities(entities)
 
 
@@ -171,12 +171,12 @@ class GaroSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def state(self):
-        _LOGGER.warning("GARO DEBUG: state() called for %s", self._sensor_type)
+        _LOGGER.debug("GARO DEBUG: state() called for %s", self._sensor_type)
         data = self.coordinator.data
         if isinstance(data, dict):
             value = data.get(self._sensor_type)
-            _LOGGER.warning("GARO DEBUG: Sensor [%s] has value = %s", self._sensor_type, value)
+            _LOGGER.debug("GARO DEBUG: Sensor [%s] has value = %s", self._sensor_type, value)
             return value
-        _LOGGER.warning("Unexpected data format: %s", type(data))
+        _LOGGER.debug("Unexpected data format: %s", type(data))
         return None
 
