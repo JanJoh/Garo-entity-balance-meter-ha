@@ -159,6 +159,17 @@ class GaroSensor(CoordinatorEntity, SensorEntity):
             configuration_url=f"https://{self._entry.data['host']}"
         )
 
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(self._entry.domain, self._entry.entry_id)},
+            name="Garo Energy Meter",
+            manufacturer="Garo",
+            model="Entity Balance Meter",
+            configuration_url=f"https://{self._entry.data['host']}"
+        )
+
     @property
     def state(self):
         _LOGGER.warning("GARO DEBUG: state() called for %s", self._sensor_type)
