@@ -10,7 +10,7 @@ DATA_SCHEMA = vol.Schema(
         vol.Required("username"): str,
         vol.Required("password"): str,
         vol.Optional("scan_interval", default=15): cv.positive_int,
-        vol.Optional("ignore_tls_errors", default=True): bool,
+        vol.Optional("ignore_tls_errors", default=False): bool,
     }
 )
 
@@ -26,3 +26,4 @@ class GaroMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
         )
+
