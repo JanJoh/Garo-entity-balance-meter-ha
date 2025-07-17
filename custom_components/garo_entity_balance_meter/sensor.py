@@ -1,4 +1,3 @@
-
 import logging
 import aiohttp
 import async_timeout
@@ -156,7 +155,7 @@ class GaroSensor(CoordinatorEntity, SensorEntity):
             name="Garo Energy Meter",
             manufacturer="Garo",
             model="Entity Balance Meter",
-            configuration_url=f"https://{self._entry.data['host']}"
+            configuration_url=f"https://{self._entry.options['host']}"
         )
 
 
@@ -167,7 +166,7 @@ class GaroSensor(CoordinatorEntity, SensorEntity):
             name="Garo Energy Meter",
             manufacturer="Garo",
             model="Entity Balance Meter",
-            configuration_url=f"https://{self._entry.data['host']}"
+            configuration_url=f"https://{self._entry.options['host']}"
         )
 
     @property

@@ -43,3 +43,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     return True
 
+from .options import GaroOptionsFlowHandler
+
+
+async def async_get_options_flow(config_entry):
+    return GaroOptionsFlowHandler(config_entry)
+
