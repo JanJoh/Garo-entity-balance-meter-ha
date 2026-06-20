@@ -1,37 +1,89 @@
-# Garo Entity Balance Meter
+# GARO Entity Balance Meter
 
-Custom Home Assistant integration for monitoring energy and power data from a Garo Entity Balance unit.
-(Yeah yeah, 80% ChatGPT code...)
+[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
+[![GitHub release](https://img.shields.io/github/v/release/JanJoh/Garo-entity-balance-meter-ha)](https://github.com/JanJoh/Garo-entity-balance-meter-ha/releases)
 
-## What this is for
-This is **only** to be able to pull data from a Garo Entity Balance Dynamic Load balancer to use as a grid consumption sensor in Home Assistant using the local Swagger API. 
-Basically, it eliminates the need for any additional HAN/P1 reader if you already have the DLB connected to your main meter.
+Home Assistant integration for the GARO Entity Balance dynamic load balancer. Polls the device's local REST API — no cloud, no GARO account required.
 
-## What this is NOT for
-Anything else. It has nothing to do with your EV Charger etc. 
+> Mostly LLM-generated code. It works, but don't expect miracles.
 
-## Features
+---
 
-- Local API access. No cloud requirement. No real limit on how often you can query data.
-- Power, voltage, current sensors (L1, L2, L3)
-- Total grid consumption (energy) compatible with Energy dashboard
-- Configurable polling interval
-- HTTPS with basic auth
+## What it does
 
-## Installation (via HACS)
+Reads grid consumption data from the GARO Entity Balance unit connected to your utility meter's P1 port. Exposes power, energy, and per-phase current and voltage as Home Assistant sensors.
 
-1. In HACS, go to **Integrations → Custom repositories**
-2. Add this repo: `https://github.com/JanJoh/Garo-entity-balance-meter-ha`
-3. Category: **Integration**
-4. Install, then restart Home Assistant
+Primary use case: use the **Grid Energy** sensor as a grid consumption source in the HA Energy dashboard — no separate P1 reader hardware needed if you already have the Entity Balance installed.
+
+---
+
+## What it is NOT
+
+This integration talks to the **load balancer**, not to the EV charger. It measures whole-house grid consumption, not charger-specific data. For charger sensors (charging state, CP signal, etc.) see [GARO Entity Charger Meter](https://github.com/JanJoh/Garo-entity-charger-meter-ha).
+
+---
+
+## Requirements
+
+- GARO Entity Balance unit connected to your utility meter's P1 port
+- BasicAuth credentials (printed on a sticker on the physical device)
+  - Username: `GaroLI-xxxxxxxxx`
+  - Password: `xxxx-xxxx-xxxx` — **enter in lowercase**, regardless of what the sticker says
+
+---
+
+## Installation
+
+### HACS (recommended)
+
+1. HACS → **Custom repositories** → add `https://github.com/JanJoh/Garo-entity-balance-meter-ha` as type **Integration**
+2. Install **GARO Entity Balance Meter**
+3. Restart Home Assistant
+4. Settings → Devices & Services → **Add integration** → search for *GARO Balance*
+
+### Manual
+
+Copy `custom_components/garo_entity_balance_meter/` into your HA `config/custom_components/` directory and restart.
+
+---
 
 ## Configuration
-- The requested IP is the IP of your Garo Entity Load balancer, **not** the IP of the EV Charger.
 
-- You need to aquire the credentials for basic auth. These are on a sticker
-on the physical device. Typically in the format 
-Username **GaroLI-xxxxxxxxx**
-Password **xxxx-xxxx-xxxx** (Please note that the password should be all lower case, regardless on what is printed on the sticker.
+| Field | Default | Description |
+|---|---|---|
+| Host | — | IP address of the Entity Balance unit (not the EV charger) |
+| Username / Password | — | BasicAuth credentials from the device sticker |
+| Fast poll interval | 15 s | How often to read live meter values (power, current, voltage, energy) |
+| Slow poll interval | 300 s | How often to fetch diagnostic data (temperatures, firmware, network) |
+| Ignore TLS errors | on | Skip certificate validation (recommended for local devices) |
+| Use HTTP | off | Use plain HTTP instead of HTTPS |
 
-- The **Energy Total** sensor plugs nicely in as a grind consumption sensor. But please note that it may take a while for the new statistical sensor shows up in HA. 
+Intervals and TLS settings can be changed after setup via **Settings → Devices & Services → GARO Entity Balance Meter → Configure**.
 
+---
+
+## Sensors
+
+### Grid metering (fast poll)
+
+| Sensor | Unit | Notes |
+|---|---|---|
+| Power Consumption | W | Instantaneous grid power |
+| Energy Total | Wh | Total imported energy — use this in the HA Energy dashboard |
+| Current L1 / L2 / L3 | A | Per-phase current |
+| Voltage L1 / L2 / L3 | V | Per-phase voltage |
+
+### Diagnostics (slow poll, disabled by default)
+
+| Sensor | Notes |
+|---|---|
+| CPU / Board Temperature | °C |
+| Firmware Version | |
+| Device ID | Serial number |
+| Unit ID | Hardware unit ID containing MAC address |
+| Network Interface | Active interface (`Ethernet`, `wlan0`, etc.) |
+| IP Address | |
+| Wi-Fi SSID / Signal | Only populated when connected via Wi-Fi |
+| CSMS Connection | Cloud/OCPP backend connection status |
+
+Enable diagnostic sensors individually under Settings → Devices → GARO Entity Balance → the sensor → Enable.
