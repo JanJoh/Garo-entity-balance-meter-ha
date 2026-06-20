@@ -8,8 +8,9 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     DOMAIN,
     CONF_HOST, CONF_USERNAME, CONF_PASSWORD,
-    CONF_SCAN_INTERVAL, CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
-    DEFAULT_SCAN_INTERVAL, API_PATH,
+    CONF_SCAN_INTERVAL, CONF_SLOW_SCAN_INTERVAL,
+    CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
+    DEFAULT_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL, API_PATH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class GaroBalanceMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_USERNAME, default=(user_input or {}).get(CONF_USERNAME, "")): str,
             vol.Required(CONF_PASSWORD, default=(user_input or {}).get(CONF_PASSWORD, "")): str,
             vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(int, vol.Range(min=5)),
+            vol.Optional(CONF_SLOW_SCAN_INTERVAL, default=DEFAULT_SLOW_SCAN_INTERVAL): vol.All(int, vol.Range(min=5)),
             vol.Optional(CONF_IGNORE_TLS_ERRORS, default=True): bool,
             vol.Optional(CONF_USE_HTTP, default=False): bool,
         })
@@ -94,6 +96,7 @@ class GaroBalanceMeterOptionsFlow(config_entries.OptionsFlow):
         data = {**self._entry.data, **self._entry.options}
         schema = vol.Schema({
             vol.Optional(CONF_SCAN_INTERVAL, default=data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): vol.All(int, vol.Range(min=5)),
+            vol.Optional(CONF_SLOW_SCAN_INTERVAL, default=data.get(CONF_SLOW_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL)): vol.All(int, vol.Range(min=5)),
             vol.Optional(CONF_IGNORE_TLS_ERRORS, default=data.get(CONF_IGNORE_TLS_ERRORS, True)): bool,
             vol.Optional(CONF_USE_HTTP, default=data.get(CONF_USE_HTTP, False)): bool,
         })
