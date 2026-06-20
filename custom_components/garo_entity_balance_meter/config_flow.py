@@ -102,7 +102,14 @@ class GaroBalanceMeterOptionsFlow(config_entries.OptionsFlow):
             if slow < scan:
                 errors[CONF_SLOW_SCAN_INTERVAL] = "slow_must_be_gte_fast"
             else:
-                return self.async_create_entry(title="Options updated", data=user_input)
+                # Preserve credentials that live in entry.options on legacy installs
+                # (old config flow stored everything there instead of entry.data)
+                merged = dict(user_input)
+                for key in (CONF_HOST, CONF_USERNAME, CONF_PASSWORD):
+                    val = self._entry.options.get(key) or self._entry.data.get(key)
+                    if val is not None:
+                        merged[key] = val
+                return self.async_create_entry(title="Options updated", data=merged)
 
         data = {**self._entry.data, **self._entry.options}
         schema = vol.Schema({
