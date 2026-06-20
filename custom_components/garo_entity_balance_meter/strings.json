@@ -8,12 +8,14 @@
           "host": "Host (IP address or hostname)",
           "username": "Username",
           "password": "Password",
-          "scan_interval": "Poll interval (seconds)",
+          "scan_interval": "Fast poll interval (seconds)",
+          "slow_scan_interval": "Slow poll interval (seconds)",
           "ignore_tls_errors": "Ignore TLS certificate errors",
           "use_http": "Use HTTP instead of HTTPS"
         },
         "data_description": {
-          "scan_interval": "How often to read the meter. Default 15 s. The P1 port typically updates every few seconds so there is no benefit going below 5 s.",
+          "scan_interval": "How often to read live meter values (power, current, voltage, energy). Default: 15 s. No benefit going below 5 s for a P1 port.",
+          "slow_scan_interval": "How often to fetch data that rarely changes: temperatures, firmware version, network info. Must be greater than or equal to the fast interval. Default: 300 s.",
           "ignore_tls_errors": "Skip certificate validation. Safe to enable for local network devices with self-signed certificates.",
           "use_http": "Only use if the device does not support HTTPS."
         }
@@ -22,20 +24,26 @@
     "error": {
       "cannot_connect": "Cannot connect to the device. Check the host address and network.",
       "invalid_auth": "Invalid credentials. Check username and password (password is case-sensitive, use lowercase).",
+      "slow_must_be_gte_fast": "Slow poll interval must be greater than or equal to the fast poll interval.",
       "unknown": "Unexpected error. Check the Home Assistant logs."
     }
   },
   "options": {
+    "error": {
+      "slow_must_be_gte_fast": "Slow poll interval must be greater than or equal to the fast poll interval."
+    },
     "step": {
       "init": {
         "title": "GARO Entity Balance — Options",
         "data": {
-          "scan_interval": "Poll interval (seconds)",
+          "scan_interval": "Fast poll interval (seconds)",
+          "slow_scan_interval": "Slow poll interval (seconds)",
           "ignore_tls_errors": "Ignore TLS certificate errors",
           "use_http": "Use HTTP instead of HTTPS"
         },
         "data_description": {
-          "scan_interval": "How often to read the meter. Default: 15 s."
+          "scan_interval": "How often to read live meter values. Default: 15 s.",
+          "slow_scan_interval": "How often to fetch diagnostic data (temperatures, firmware, network). Must be ≥ fast interval. Default: 300 s."
         }
       }
     }
