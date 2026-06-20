@@ -1,182 +1,145 @@
-import logging
-import aiohttp
-import async_timeout
+from __future__ import annotations
+import logging, asyncio, aiohttp
 from datetime import timedelta
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers import aiohttp_client
-import traceback
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers import aiohttp_client
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
+from homeassistant.const import (
+    UnitOfElectricCurrent, UnitOfElectricPotential, UnitOfPower, UnitOfEnergy
+)
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import (
+    DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD,
+    CONF_SCAN_INTERVAL, CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
+    DEFAULT_SCAN_INTERVAL, MANUFACTURER, PRODUCT_NAME, API_PATH,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-SENSOR_TYPES = {
-    "power": ("Power Consumption", "W", "power", "measurement"),
-    "energy": ("Energy Total", "Wh", "energy", "total_increasing"),
-    "current_l1": ("Current L1", "A", "current", "measurement"),
-    "current_l2": ("Current L2", "A", "current", "measurement"),
-    "current_l3": ("Current L3", "A", "current", "measurement"),
-    "voltage_l1": ("Voltage L1", "V", "voltage", "measurement"),
-    "voltage_l2": ("Voltage L2", "V", "voltage", "measurement"),
-    "voltage_l3": ("Voltage L3", "V", "voltage", "measurement"),
+SENSOR_MAP = {
+    "power":      {"name": "Grid Power",          "device_class": SensorDeviceClass.POWER,   "unit": UnitOfPower.WATT,              "state_class": SensorStateClass.MEASUREMENT},
+    "energy":     {"name": "Grid Energy",         "device_class": SensorDeviceClass.ENERGY,  "unit": UnitOfEnergy.WATT_HOUR,        "state_class": SensorStateClass.TOTAL_INCREASING},
+    "current_l1": {"name": "Grid L1 Current",     "device_class": SensorDeviceClass.CURRENT, "unit": UnitOfElectricCurrent.AMPERE,  "state_class": SensorStateClass.MEASUREMENT},
+    "current_l2": {"name": "Grid L2 Current",     "device_class": SensorDeviceClass.CURRENT, "unit": UnitOfElectricCurrent.AMPERE,  "state_class": SensorStateClass.MEASUREMENT},
+    "current_l3": {"name": "Grid L3 Current",     "device_class": SensorDeviceClass.CURRENT, "unit": UnitOfElectricCurrent.AMPERE,  "state_class": SensorStateClass.MEASUREMENT},
+    "voltage_l1": {"name": "Grid L1 Voltage",     "device_class": SensorDeviceClass.VOLTAGE, "unit": UnitOfElectricPotential.VOLT,  "state_class": SensorStateClass.MEASUREMENT},
+    "voltage_l2": {"name": "Grid L2 Voltage",     "device_class": SensorDeviceClass.VOLTAGE, "unit": UnitOfElectricPotential.VOLT,  "state_class": SensorStateClass.MEASUREMENT},
+    "voltage_l3": {"name": "Grid L3 Voltage",     "device_class": SensorDeviceClass.VOLTAGE, "unit": UnitOfElectricPotential.VOLT,  "state_class": SensorStateClass.MEASUREMENT},
 }
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    _LOGGER.debug("GARO DEBUG: async_setup_entry called")
+    data = hass.data[DOMAIN][entry.entry_id]
 
-    options = entry.options
-    data = entry.data
+    def opt(key):
+        return entry.options.get(key, entry.data.get(key))
 
-    host = options.get("host", data.get("host"))
-    username = options.get("username", data.get("username"))
-    password = options.get("password", data.get("password"))
-    scan_interval = timedelta(seconds=options.get("scan_interval", data.get("scan_interval", 900)))
-    ignore_tls = options.get("ignore_tls_errors", data.get("ignore_tls_errors", True))
+    host = opt(CONF_HOST)
+    username = opt(CONF_USERNAME)
+    password = opt(CONF_PASSWORD)
+    scan_interval = opt(CONF_SCAN_INTERVAL) or DEFAULT_SCAN_INTERVAL
+    ignore_tls = opt(CONF_IGNORE_TLS_ERRORS)
+    use_http = opt(CONF_USE_HTTP)
 
-    session = aiohttp_client.async_get_clientsession(hass)
-    auth = aiohttp.BasicAuth(username, password)
+    scheme = "http" if use_http else "https"
+    url = f"{scheme}://{host}{API_PATH}"
+    session = data.get("session") or aiohttp_client.async_get_clientsession(hass, verify_ssl=not ignore_tls)
 
-    async def fetch_data():
-        _LOGGER.debug("GARO DEBUG: fetch_data called")
+    async def _async_update_data():
+        result = {}
         try:
-            url = f"https://{host}/status/energy-meter"
-            ssl_context = False if ignore_tls else None
-            _LOGGER.debug("GARO DEBUG: Attempting request to %s", url)
-            _LOGGER.debug("GARO DEBUG: SSL = %s", ssl_context)
+            async with asyncio.timeout(15):
+                async with session.get(url, auth=aiohttp.BasicAuth(username, password)) as resp:
+                    text = await resp.text()
+                    if resp.status != 200:
+                        _LOGGER.warning("Status %s from %s: %s", resp.status, url, text[:120])
+                        return result
+                    try:
+                        payload = await resp.json(content_type=None)
+                    except Exception:
+                        _LOGGER.error("JSON decode failed URL=%s raw=%s", url, text[:120])
+                        return result
 
-            async with async_timeout.timeout(10):
-                _LOGGER.debug("GARO DEBUG: Entering session.get()...")
-                async with session.get(url, auth=auth, ssl=ssl_context) as response:
-                    _LOGGER.debug("GARO DEBUG: Got response with status %s", response.status)
-
-                    raw = await response.json()
-                    _LOGGER.debug("GARO DEBUG: RAW JSON = %s", raw)
-
-                    data = {}
-
-                    if not isinstance(raw, list):
-                        _LOGGER.error("GARO DEBUG: Unexpected type for raw JSON: %s", type(raw))
-                        return {}
-
-                    for idx, entry in enumerate(raw):
-                        _LOGGER.debug("GARO DEBUG: Entry #%d = %s", idx, entry)
-                        if not isinstance(entry, dict):
-                            _LOGGER.debug("GARO DEBUG: Skipping non-dict entry: %s", entry)
-                            continue
-
-                        sampled = entry.get("sampledValue", [])
-                        _LOGGER.debug("GARO DEBUG: sampledValue block = %s", sampled)
-                        for item in sampled:
-                            measurand = item.get("measurand")
-                            phase = item.get("phase")
-                            value = item.get("value")
-                            _LOGGER.debug("GARO DEBUG: measurand=%s, phase=%s, value=%s", measurand, phase, value)
-
-                            if value is None:
+                    for block in payload:
+                        for sv in block.get("sampledValue", []):
+                            meas = sv.get("measurand")
+                            phase = sv.get("phase")
+                            raw = sv.get("value")
+                            if raw is None:
                                 continue
-
                             try:
-                                value = float(value)
-                            except ValueError:
+                                val = float(raw)
+                            except (ValueError, TypeError):
                                 continue
 
-                            if measurand == "Current.Import":
-                                if phase == "L1":
-                                    data["current_l1"] = value
-                                elif phase == "L2":
-                                    data["current_l2"] = value
-                                elif phase == "L3":
-                                    data["current_l3"] = value
-                            elif measurand == "Voltage":
-                                if phase == "L1-N":
-                                    data["voltage_l1"] = value
-                                elif phase == "L2-N":
-                                    data["voltage_l2"] = value
-                                elif phase == "L3-N":
-                                    data["voltage_l3"] = value
-                            elif measurand == "Energy.Active.Import.Register":
-                                data["energy"] = value
-                            elif measurand == "Power.Active.Import":
-                                data["power"] = value
+                            if meas == "Current.Import":
+                                if phase == "L1": result["current_l1"] = val
+                                elif phase == "L2": result["current_l2"] = val
+                                elif phase == "L3": result["current_l3"] = val
+                            elif meas == "Voltage":
+                                if phase == "L1-N": result["voltage_l1"] = val
+                                elif phase == "L2-N": result["voltage_l2"] = val
+                                elif phase == "L3-N": result["voltage_l3"] = val
+                            elif meas == "Energy.Active.Import.Register":
+                                prev = (coordinator.data or {}).get("energy")
+                                if prev is not None and val < prev:
+                                    _LOGGER.warning("Energy counter decreased (%.1f -> %.1f), keeping previous", prev, val)
+                                    val = prev
+                                result["energy"] = val
+                            elif meas == "Power.Active.Import":
+                                result["power"] = val
+        except Exception as e:
+            _LOGGER.warning("Fetch failed: %s", e)
 
-                    if not data:
-                        _LOGGER.debug("GARO DEBUG: Parsed data dictionary is EMPTY")
-                    else:
-                        _LOGGER.debug("GARO DEBUG: Final parsed data = %s", data)
-
-                    return data
-
-        except Exception as err:
-            _LOGGER.error("GARO DEBUG: Exception in fetch_data: %s", err)
-            _LOGGER.debug("GARO DEBUG: Traceback:\n%s", traceback.format_exc())
-            return {}
+        return result
 
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
-        name="Garo Entity Balance Meter",
-        update_method=fetch_data,
-        update_interval=scan_interval,
+        name="garo_entity_balance_meter",
+        update_method=_async_update_data,
+        update_interval=timedelta(seconds=scan_interval),
+    )
+    data["coordinator"] = coordinator
+    await coordinator.async_config_entry_first_refresh()
+
+    async_add_entities(
+        GaroBalanceSensor(coordinator, entry, host, key)
+        for key in SENSOR_MAP
     )
 
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except Exception as e:
-        _LOGGER.debug("Initial data fetch failed: %s", e)
 
-    entities = [GaroSensor(coordinator, sensor_type, entry) for sensor_type in SENSOR_TYPES]
-    _LOGGER.debug("GARO DEBUG: Registered sensor types: %s", [e._sensor_type for e in entities])
-    async_add_entities(entities)
+class GaroBalanceSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
 
-
-class GaroSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, sensor_type, entry):
+    def __init__(self, coordinator, entry, host, key):
         super().__init__(coordinator)
-        self._sensor_type = sensor_type
+        self._key = key
         self._entry = entry
-        self._attr_name = SENSOR_TYPES[sensor_type][0]
-        self._attr_native_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
-        self._attr_device_class = SENSOR_TYPES[sensor_type][2]
-        self._attr_state_class = SENSOR_TYPES[sensor_type][3]
+        self._host = host
+        info = SENSOR_MAP[key]
+        self._attr_name = info["name"]
+        self._attr_unique_id = f"{host}_{key}"
+        self._attr_device_class = info["device_class"]
+        self._attr_native_unit_of_measurement = info["unit"]
+        self._attr_state_class = info["state_class"]
 
     @property
-    def unique_id(self):
-        return f"garo_{self._sensor_type}"
-
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(self._entry.domain, self._entry.entry_id)},
-            name="Garo Energy Meter",
-            manufacturer="Garo",
-            model="Entity Balance Meter",
-            configuration_url=f"https://{self._entry.options['host']}"
-        )
-
+    def native_value(self):
+        return (self.coordinator.data or {}).get(self._key)
 
     @property
     def device_info(self) -> DeviceInfo:
+        data = self.coordinator.hass.data[DOMAIN][self._entry.entry_id]
+        scheme = "http" if data.get("use_http") else "https"
         return DeviceInfo(
-            identifiers={(self._entry.domain, self._entry.entry_id)},
-            name="Garo Energy Meter",
-            manufacturer="Garo",
-            model="Entity Balance Meter",
-            configuration_url=f"https://{self._entry.options['host']}"
+            identifiers={(DOMAIN, self._host)},
+            manufacturer=MANUFACTURER,
+            name=PRODUCT_NAME,
+            model="Entity Balance",
+            configuration_url=f"{scheme}://{self._host}",
         )
-
-    @property
-    def state(self):
-        _LOGGER.debug("GARO DEBUG: state() called for %s", self._sensor_type)
-        data = self.coordinator.data
-        if isinstance(data, dict):
-            value = data.get(self._sensor_type)
-            _LOGGER.debug("GARO DEBUG: Sensor [%s] has value = %s", self._sensor_type, value)
-            return value
-        _LOGGER.debug("Unexpected data format: %s", type(data))
-        return None
-

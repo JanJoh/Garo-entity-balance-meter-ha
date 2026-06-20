@@ -1,51 +1,64 @@
-
-import logging
-from homeassistant.config_entries import ConfigEntry
+from __future__ import annotations
+import logging, asyncio, aiohttp
 from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import aiohttp_client
 from homeassistant.exceptions import ConfigEntryNotReady
-import aiohttp
-import async_timeout
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN, PLATFORMS,
+    CONF_HOST, CONF_USERNAME, CONF_PASSWORD,
+    CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
+    API_PATH,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    _LOGGER.debug("GARO DEBUG: async_setup_entry called")
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    hass.data.setdefault(DOMAIN, {})
 
-    options = entry.options
-    data = entry.data
+    def opt(key, default=None):
+        return entry.options.get(key, entry.data.get(key, default))
 
-    host = options.get("host", data.get("host"))
-    username = options.get("username", data.get("username"))
-    password = options.get("password", data.get("password"))
-    ignore_tls = options.get("ignore_tls_errors", data.get("ignore_tls_errors", True))
+    host = opt(CONF_HOST)
+    username = opt(CONF_USERNAME)
+    password = opt(CONF_PASSWORD)
+    ignore_tls = opt(CONF_IGNORE_TLS_ERRORS, True)
+    use_http = opt(CONF_USE_HTTP, False)
+    scheme = "http" if use_http else "https"
+    url = f"{scheme}://{host}{API_PATH}"
 
-    session = aiohttp_client.async_get_clientsession(hass)
-    auth = aiohttp.BasicAuth(username, password)
-    url = f"https://{host}/status/energy-meter"
-    ssl_context = False if ignore_tls else None
-
+    session = aiohttp_client.async_get_clientsession(hass, verify_ssl=not ignore_tls)
     try:
-        async with async_timeout.timeout(10):
-            _LOGGER.debug("GARO DEBUG: Sending initial connectivity test to %s", url)
-            async with session.get(url, auth=auth, ssl=ssl_context) as response:
-                if response.status != 200:
-                    raise ConfigEntryNotReady(f"Unexpected HTTP status {response.status}")
-                _LOGGER.debug("GARO DEBUG: Device responded with HTTP %s", response.status)
-    except Exception as err:
-        _LOGGER.error("Garo device not ready: %s", err)
-        raise ConfigEntryNotReady("Device not reachable") from err
+        async with asyncio.timeout(15):
+            async with session.get(url, auth=aiohttp.BasicAuth(username, password)) as resp:
+                txt = await resp.text()
+                if resp.status in (401, 403):
+                    raise ConfigEntryNotReady(f"Authentication failed (status {resp.status})")
+                if resp.status >= 400:
+                    raise ConfigEntryNotReady(f"HTTP {resp.status}: {txt[:120]}")
+    except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        raise ConfigEntryNotReady(f"Connection error: {err}") from err
 
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    hass.data[DOMAIN][entry.entry_id] = {
+        CONF_HOST: host,
+        "use_http": use_http,
+        "session": session,
+    }
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
     return True
 
-from .options import GaroOptionsFlowHandler
+
+async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_get_options_flow(config_entry):
-    return GaroOptionsFlowHandler(config_entry)
-
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+    return unload_ok
