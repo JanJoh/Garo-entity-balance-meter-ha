@@ -24,6 +24,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = opt(CONF_HOST)
     username = opt(CONF_USERNAME)
     password = opt(CONF_PASSWORD)
+
+    if not host or not username or not password:
+        raise ConfigEntryNotReady(
+            "Credentials missing from config entry — please delete and re-add this integration"
+        )
+
     ignore_tls = opt(CONF_IGNORE_TLS_ERRORS, True)
     use_http = opt(CONF_USE_HTTP, False)
     scheme = "http" if use_http else "https"
