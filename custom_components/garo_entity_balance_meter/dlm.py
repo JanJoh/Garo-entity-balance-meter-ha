@@ -66,6 +66,20 @@ def _parse_content_range(value: str | None) -> tuple[int | None, int | None]:
     return (int(m[1]) if m[1] else None), int(m[2])
 
 
+async def _read_up_to(resp: aiohttp.ClientResponse, limit: int) -> bytes:
+    """Read the body until EOF or until more than `limit` bytes were received.
+
+    resp.content.read(n) returns whatever is buffered (often 16 kB), not n bytes.
+    """
+    chunks, total = [], 0
+    async for chunk in resp.content.iter_chunked(64 * 1024):
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > limit:
+            break
+    return b"".join(chunks)
+
+
 @dataclass
 class DlmLogFollower:
     """Incremental reader of the balancer log. One instance per config entry."""
@@ -93,7 +107,7 @@ class DlmLogFollower:
                     self.offset, self._partial = None, b""
                 return self.latest
             if resp.status == 206:
-                body = await resp.content.read(MAX_READ_BYTES + 1)
+                body = await _read_up_to(resp, MAX_READ_BYTES)
                 start = start or 0
             elif resp.status == 200:
                 # Server ignored Range and sent the whole file.
