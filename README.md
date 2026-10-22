@@ -60,6 +60,10 @@ Copy `custom_components/garo_entity_balance_meter/` into your HA `config/custom_
 
 Intervals and TLS settings can be changed after setup via **Settings → Devices & Services → GARO Entity Balance Meter → Configure**.
 
+Host and credentials are changed with **⋮ → Reconfigure** on the integration entry. They are stored only in the config entry's `data`, which Home Assistant redacts in diagnostics; the options (Configure) hold polling and TLS settings only.
+
+> **Upgrading from 1.1.x:** earlier versions copied the host and credentials into the entry's options, which Home Assistant exposes unredacted. 1.2.0 moves them to `data` automatically on first start. Consider changing the device password if the old options may have been shared (for example in a diagnostics dump).
+
 ---
 
 ## Sensors
@@ -87,3 +91,16 @@ Intervals and TLS settings can be changed after setup via **Settings → Devices
 | CSMS Connection | Cloud/OCPP backend connection status |
 
 Enable diagnostic sensors individually under Settings → Devices → GARO Entity Balance → the sensor → Enable.
+
+### Dynamic load management (DLM)
+
+The balancer recalculates, about every 10 seconds, how much current the charger may use on each phase, and writes the result to its log (`DLM limits: raw=(…), filtered=(…)`). No REST endpoint exposes this, so the integration follows `/log/garoevse.log` with HTTP Range requests: one 16 kB read at start, then only the lines appended since the last poll. Log rotation is detected and handled.
+
+| Sensor | Unit | Notes |
+|---|---|---|
+| DLM Limit L1 / L2 / L3 | A | Limit per phase ("filtered" value). Attribute `raw` holds the unfiltered value |
+| DLM Limit Lowest | A | Lowest of the three. A charger configured as 3-phase is held to this; below 6 A it pauses charging. Attributes: `limiting_phase`, `changes_since_start` |
+
+The sensors go unavailable when the newest log entry is more than 5 minutes old. Turn them off under **Configure → Read DLM limits from the device log**.
+
+Useful for spotting needless pauses: a single-phase car charging on L1 is still paused when L2 or L3 runs out of headroom if the charger is configured as 3-phase.

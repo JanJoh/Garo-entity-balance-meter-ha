@@ -19,6 +19,15 @@
           "ignore_tls_errors": "Skip certificate validation. Safe to enable for local network devices with self-signed certificates.",
           "use_http": "Only use if the device does not support HTTPS."
         }
+      },
+      "reconfigure": {
+        "title": "GARO Entity Balance — Reconfigure",
+        "description": "Change the host address or the BasicAuth credentials. The password is not shown; enter it again.",
+        "data": {
+          "host": "Host (IP address or hostname)",
+          "username": "Username",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -26,6 +35,10 @@
       "invalid_auth": "Invalid credentials. Check username and password (password is case-sensitive, use lowercase).",
       "slow_must_be_gte_fast": "Slow poll interval must be greater than or equal to the fast poll interval.",
       "unknown": "Unexpected error. Check the Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "Reconfiguration successful."
     }
   },
   "options": {
@@ -39,11 +52,13 @@
           "scan_interval": "Fast poll interval (seconds)",
           "slow_scan_interval": "Slow poll interval (seconds)",
           "ignore_tls_errors": "Ignore TLS certificate errors",
-          "use_http": "Use HTTP instead of HTTPS"
+          "use_http": "Use HTTP instead of HTTPS",
+          "enable_dlm": "Read DLM limits from the device log"
         },
         "data_description": {
           "scan_interval": "How often to read live meter values. Default: 15 s.",
-          "slow_scan_interval": "How often to fetch diagnostic data (temperatures, firmware, network). Must be ≥ fast interval. Default: 300 s."
+          "slow_scan_interval": "How often to fetch diagnostic data (temperatures, firmware, network). Must be ≥ fast interval. Default: 300 s.",
+          "enable_dlm": "Adds sensors for the per-phase current limit the balancer gives the charger. Read from the device log with small incremental requests."
         }
       }
     }

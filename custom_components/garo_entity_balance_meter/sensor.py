@@ -3,9 +3,10 @@ import logging, asyncio, aiohttp
 from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
-from homeassistant.helpers import aiohttp_client, device_registry as dr
+from homeassistant.helpers import aiohttp_client, device_registry as dr, entity_registry as er
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     UnitOfElectricCurrent, UnitOfElectricPotential, UnitOfPower, UnitOfEnergy, UnitOfTemperature
@@ -15,10 +16,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD,
     CONF_SCAN_INTERVAL, CONF_SLOW_SCAN_INTERVAL,
-    CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
-    DEFAULT_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL,
+    CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP, CONF_ENABLE_DLM,
+    DEFAULT_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL, DEFAULT_ENABLE_DLM, DLM_STALE_SECONDS,
     MANUFACTURER, PRODUCT_NAME, API_PATH,
 )
+from .dlm import DlmLogFollower
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +55,17 @@ SENSOR_MAP = {
     "csms_status":        {"name": "CSMS Connection",    "device_class": None, "unit": None, "state_class": None, "entity_category": EntityCategory.DIAGNOSTIC, "enabled_default": False},
 }
 
+# --- Dynamic load management (read from the device log, see dlm.py) ---
+# The limit the balancer gives the charger per phase, in A ("filtered" in the log).
+# A charger configured as 3-phase is limited by the lowest phase, which is why
+# "DLM Limit Lowest" is the one to alert on: below 6 A charging pauses.
+DLM_SENSOR_MAP = {
+    "dlm_limit_l1":     {"name": "DLM Limit L1",     "phase": 0},
+    "dlm_limit_l2":     {"name": "DLM Limit L2",     "phase": 1},
+    "dlm_limit_l3":     {"name": "DLM Limit L3",     "phase": 2},
+    "dlm_limit_lowest": {"name": "DLM Limit Lowest", "phase": None},
+}
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     data = hass.data[DOMAIN][entry.entry_id]
@@ -60,13 +73,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     def opt(key):
         return entry.options.get(key, entry.data.get(key))
 
-    host = opt(CONF_HOST)
-    username = opt(CONF_USERNAME)
-    password = opt(CONF_PASSWORD)
+    # Host and credentials live in entry.data only (see async_migrate_entry).
+    host = entry.data.get(CONF_HOST)
+    username = entry.data.get(CONF_USERNAME)
+    password = entry.data.get(CONF_PASSWORD)
     scan_interval = opt(CONF_SCAN_INTERVAL) or DEFAULT_SCAN_INTERVAL
     slow_scan_interval = opt(CONF_SLOW_SCAN_INTERVAL) or DEFAULT_SLOW_SCAN_INTERVAL
     ignore_tls = opt(CONF_IGNORE_TLS_ERRORS)
     use_http = opt(CONF_USE_HTTP)
+    enable_dlm = opt(CONF_ENABLE_DLM)
+    if enable_dlm is None:
+        enable_dlm = DEFAULT_ENABLE_DLM
 
     scheme = "http" if use_http else "https"
     base_url         = f"{scheme}://{host}{API_PATH}"
@@ -79,6 +96,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     csms_url         = f"{scheme}://{host}{API_PATH_CSMS_STATUS}"
 
     session = data.get("session") or aiohttp_client.async_get_clientsession(hass, verify_ssl=not ignore_tls)
+
+    follower = DlmLogFollower(f"{scheme}://{host}", aiohttp.BasicAuth(username, password)) if enable_dlm else None
+    data["dlm_follower"] = follower
 
     def _extract_simple(payload):
         if isinstance(payload, dict):
@@ -253,6 +273,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         except Exception as e:
             _LOGGER.warning("Energy meter fetch failed: %s", e)
 
+        # --- DLM limits from the device log ---
+        if follower is not None:
+            try:
+                async with asyncio.timeout(10):
+                    await follower.poll(session)
+            except Exception as e:
+                # Keep the last reading; staleness is handled by the sensors.
+                _LOGGER.debug("DLM log poll failed: %s", e)
+
         return result
 
     coordinator = DataUpdateCoordinator(
@@ -265,10 +294,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     data["coordinator"] = coordinator
     await coordinator.async_config_entry_first_refresh()
 
-    async_add_entities(
-        GaroBalanceSensor(coordinator, entry, host, key)
-        for key in SENSOR_MAP
-    )
+    entities = [GaroBalanceSensor(coordinator, entry, host, key) for key in SENSOR_MAP]
+    if follower is not None:
+        entities += [GaroDlmSensor(coordinator, entry, host, key, follower) for key in DLM_SENSOR_MAP]
+    else:
+        # DLM turned off in options: drop its entities instead of leaving them unavailable.
+        registry = er.async_get(hass)
+        for key in DLM_SENSOR_MAP:
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"garo_{key}")
+            if entity_id:
+                registry.async_remove(entity_id)
+    async_add_entities(entities)
 
 
 class GaroBalanceSensor(CoordinatorEntity, SensorEntity):
@@ -293,27 +329,90 @@ class GaroBalanceSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        entry_data = self.coordinator.hass.data[DOMAIN][self._entry.entry_id]
-        scheme = "http" if entry_data.get("use_http") else "https"
-        coord_data = self.coordinator.data or {}
-        device_id = coord_data.get("device_id")
-        unit_id = coord_data.get("unit_id")
-        fw = coord_data.get("firmware_version")
+        return _device_info(self.coordinator, self._entry, self._host)
 
-        connections: set = set()
-        if unit_id and "-" in unit_id:
-            mac_raw = unit_id.split("-")[-1]
-            if len(mac_raw) == 12 and all(c in "0123456789ABCDEFabcdef" for c in mac_raw):
-                mac = ":".join(mac_raw[i:i+2] for i in range(0, 12, 2))
-                connections.add((dr.CONNECTION_NETWORK_MAC, mac.upper()))
 
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            connections=connections,
-            manufacturer=MANUFACTURER,
-            name=PRODUCT_NAME,
-            model="Entity Balance",
-            serial_number=device_id,
-            sw_version=fw,
-            configuration_url=f"{scheme}://{self._host}",
-        )
+class GaroDlmSensor(CoordinatorEntity, SensorEntity):
+    """Per-phase current limit the balancer gives the charger."""
+
+    _attr_device_class = SensorDeviceClass.CURRENT
+    _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:car-electric-outline"
+
+    def __init__(self, coordinator, entry, host, key, follower: DlmLogFollower):
+        super().__init__(coordinator)
+        self._entry = entry
+        self._host = host
+        self._follower = follower
+        self._phase = DLM_SENSOR_MAP[key]["phase"]
+        self._attr_name = DLM_SENSOR_MAP[key]["name"]
+        self._attr_unique_id = f"garo_{key}"
+
+    def _fresh_reading(self):
+        reading = self._follower.latest
+        if reading is None:
+            return None
+        if (dt_util.utcnow() - reading.timestamp).total_seconds() > DLM_STALE_SECONDS:
+            return None
+        return reading
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._fresh_reading() is not None
+
+    @property
+    def native_value(self):
+        reading = self._fresh_reading()
+        if reading is None:
+            return None
+        if self._phase is None:
+            return min(reading.filtered)
+        return reading.filtered[self._phase]
+
+    @property
+    def extra_state_attributes(self):
+        reading = self._follower.latest
+        if reading is None:
+            return None
+        attrs = {
+            "charger": reading.charger,
+            "logged_at": reading.timestamp.isoformat(),
+        }
+        if self._phase is None:
+            attrs["limiting_phase"] = f"L{reading.filtered.index(min(reading.filtered)) + 1}"
+            attrs["changes_since_start"] = self._follower.changes
+        else:
+            attrs["raw"] = reading.raw[self._phase]
+        return attrs
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return _device_info(self.coordinator, self._entry, self._host)
+
+
+def _device_info(coordinator, entry, host) -> DeviceInfo:
+    entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
+    scheme = "http" if entry_data.get("use_http") else "https"
+    coord_data = coordinator.data or {}
+    device_id = coord_data.get("device_id")
+    unit_id = coord_data.get("unit_id")
+    fw = coord_data.get("firmware_version")
+
+    connections: set = set()
+    if unit_id and "-" in unit_id:
+        mac_raw = unit_id.split("-")[-1]
+        if len(mac_raw) == 12 and all(c in "0123456789ABCDEFabcdef" for c in mac_raw):
+            mac = ":".join(mac_raw[i:i+2] for i in range(0, 12, 2))
+            connections.add((dr.CONNECTION_NETWORK_MAC, mac.upper()))
+
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        connections=connections,
+        manufacturer=MANUFACTURER,
+        name=PRODUCT_NAME,
+        model="Entity Balance",
+        serial_number=device_id,
+        sw_version=fw,
+        configuration_url=f"{scheme}://{host}",
+    )

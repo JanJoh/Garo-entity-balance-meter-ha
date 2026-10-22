@@ -4,13 +4,14 @@ from typing import Any
 from homeassistant import config_entries
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import aiohttp_client
 
 from .const import (
     DOMAIN,
     CONF_HOST, CONF_USERNAME, CONF_PASSWORD,
     CONF_SCAN_INTERVAL, CONF_SLOW_SCAN_INTERVAL,
-    CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
-    DEFAULT_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL, API_PATH,
+    CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP, CONF_ENABLE_DLM, DATA_KEYS,
+    DEFAULT_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL, DEFAULT_ENABLE_DLM, API_PATH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ async def _async_validate_input(hass: HomeAssistant, data: dict[str, Any]) -> No
     ignore_tls = data.get(CONF_IGNORE_TLS_ERRORS, True)
     use_http = data.get(CONF_USE_HTTP, False)
     scheme = "http" if use_http else "https"
-    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=not ignore_tls))
+    session = aiohttp_client.async_get_clientsession(hass, verify_ssl=not ignore_tls)
     try:
         async with asyncio.timeout(10):
             async with session.get(
@@ -41,12 +42,11 @@ async def _async_validate_input(hass: HomeAssistant, data: dict[str, Any]) -> No
         raise
     except Exception as err:
         raise CannotConnect(err) from err
-    finally:
-        await session.close()
 
 
 class GaroBalanceMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+    MINOR_VERSION = 2  # 1.2: credentials live only in entry.data (see async_migrate_entry)
 
     @staticmethod
     @callback
@@ -89,6 +89,37 @@ class GaroBalanceMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         })
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Change host or credentials. They are stored in entry.data only."""
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        errors = {}
+        if user_input is not None:
+            settings = {**entry.data, **entry.options}
+            try:
+                await _async_validate_input(self.hass, {**settings, **user_input})
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error validating input")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    title=f"GARO Balance @ {user_input[CONF_HOST]}",
+                    data={**entry.data, **user_input},
+                    reason="reconfigure_successful",
+                )
+
+        current = {**entry.data, **(user_input or {})}
+        schema = vol.Schema({
+            vol.Required(CONF_HOST, default=current.get(CONF_HOST, "")): str,
+            vol.Required(CONF_USERNAME, default=current.get(CONF_USERNAME, "")): str,
+            vol.Required(CONF_PASSWORD): str,
+        })
+        return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
+
 
 class GaroBalanceMeterOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
@@ -102,14 +133,10 @@ class GaroBalanceMeterOptionsFlow(config_entries.OptionsFlow):
             if slow < scan:
                 errors[CONF_SLOW_SCAN_INTERVAL] = "slow_must_be_gte_fast"
             else:
-                # Preserve credentials that live in entry.options on legacy installs
-                # (old config flow stored everything there instead of entry.data)
-                merged = dict(user_input)
-                for key in (CONF_HOST, CONF_USERNAME, CONF_PASSWORD):
-                    val = self._entry.options.get(key) or self._entry.data.get(key)
-                    if val is not None:
-                        merged[key] = val
-                return self.async_create_entry(title="Options updated", data=merged)
+                # Options hold polling/TLS settings only. Host and credentials stay in
+                # entry.data, which Home Assistant redacts; options are exposed as-is.
+                options = {k: v for k, v in user_input.items() if k not in DATA_KEYS}
+                return self.async_create_entry(title="Options updated", data=options)
 
         data = {**self._entry.data, **self._entry.options}
         schema = vol.Schema({
@@ -117,5 +144,6 @@ class GaroBalanceMeterOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_SLOW_SCAN_INTERVAL, default=data.get(CONF_SLOW_SCAN_INTERVAL, DEFAULT_SLOW_SCAN_INTERVAL)): vol.All(int, vol.Range(min=5)),
             vol.Optional(CONF_IGNORE_TLS_ERRORS, default=data.get(CONF_IGNORE_TLS_ERRORS, True)): bool,
             vol.Optional(CONF_USE_HTTP, default=data.get(CONF_USE_HTTP, False)): bool,
+            vol.Optional(CONF_ENABLE_DLM, default=data.get(CONF_ENABLE_DLM, DEFAULT_ENABLE_DLM)): bool,
         })
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

@@ -6,7 +6,7 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
-    DOMAIN, PLATFORMS,
+    DOMAIN, PLATFORMS, DATA_KEYS,
     CONF_HOST, CONF_USERNAME, CONF_PASSWORD,
     CONF_IGNORE_TLS_ERRORS, CONF_USE_HTTP,
     API_PATH,
@@ -15,23 +15,41 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """1.1 -> 1.2: move host and credentials out of entry.options into entry.data.
+
+    Earlier versions of the options flow copied host/username/password into
+    entry.options, which Home Assistant exposes unredacted (API, diagnostics).
+    """
+    if entry.version > 1:
+        return False
+    if entry.minor_version < 2:
+        data = dict(entry.data)
+        options = dict(entry.options)
+        for key in DATA_KEYS:
+            if key in options:
+                value = options.pop(key)
+                if value and not data.get(key):
+                    data[key] = value
+        hass.config_entries.async_update_entry(entry, data=data, options=options, minor_version=2)
+        _LOGGER.info("Migrated config entry %s: credentials moved from options to data", entry.entry_id)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
-    def opt(key, default=None):
-        return entry.options.get(key, entry.data.get(key, default))
-
-    host = opt(CONF_HOST)
-    username = opt(CONF_USERNAME)
-    password = opt(CONF_PASSWORD)
+    host = entry.data.get(CONF_HOST)
+    username = entry.data.get(CONF_USERNAME)
+    password = entry.data.get(CONF_PASSWORD)
 
     if not host or not username or not password:
         raise ConfigEntryNotReady(
-            "Credentials missing from config entry — please delete and re-add this integration"
+            "Credentials missing from config entry — use Reconfigure to enter them again"
         )
 
-    ignore_tls = opt(CONF_IGNORE_TLS_ERRORS, True)
-    use_http = opt(CONF_USE_HTTP, False)
+    ignore_tls = entry.options.get(CONF_IGNORE_TLS_ERRORS, entry.data.get(CONF_IGNORE_TLS_ERRORS, True))
+    use_http = entry.options.get(CONF_USE_HTTP, entry.data.get(CONF_USE_HTTP, False))
     scheme = "http" if use_http else "https"
     url = f"{scheme}://{host}{API_PATH}"
 
