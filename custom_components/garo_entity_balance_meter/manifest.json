@@ -1,17 +1,17 @@
 {
   "domain": "garo_entity_balance_meter",
   "name": "GARO Entity Balance Meter",
-  "version": "1.2.1",
-  "config_flow": true,
   "codeowners": [
     "@JanJoh"
   ],
+  "config_flow": true,
   "documentation": "https://github.com/JanJoh/Garo-entity-balance-meter-ha",
-  "issue_tracker": "https://github.com/JanJoh/Garo-entity-balance-meter-ha/issues",
-  "iot_class": "local_polling",
   "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/JanJoh/Garo-entity-balance-meter-ha/issues",
   "loggers": [
     "custom_components.garo_entity_balance_meter"
   ],
-  "requirements": []
+  "requirements": [],
+  "version": "1.2.1"
 }
