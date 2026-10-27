@@ -1,10 +1,6 @@
 {
   "domain": "garo_entity_balance_meter",
   "name": "GARO Entity Balance Meter",
-  "categories": [
-    "energy.meters_monitoring",
-    "energy.ev_charging"
-  ],
   "codeowners": [
     "@JanJoh"
   ],
