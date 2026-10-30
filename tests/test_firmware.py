@@ -39,7 +39,7 @@ async def test_update_available(hass: HomeAssistant, aioclient_mock):
     assert (st.attributes["installed_version"], st.attributes["latest_version"]) == ("4.2.7", "4.10.3")
     assert st.attributes["release_summary"] == "Downloaded and verified, waiting to install"
     assert st.attributes["supported_features"] == 4  # PROGRESS only: reported, never installed from HA
-    assert "entity_picture" not in st.attributes
+    assert "entity_picture" not in st.attributes and st.attributes["icon"] == "mdi:memory"
 
 
 async def test_installing_then_installed(hass: HomeAssistant, aioclient_mock):
