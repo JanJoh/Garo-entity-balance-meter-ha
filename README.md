@@ -104,3 +104,13 @@ The balancer recalculates, about every 10 seconds, how much current the charger 
 The sensors go unavailable when the newest log entry is more than 5 minutes old. Turn them off under **Configure → Read DLM limits from the device log**.
 
 Useful for spotting needless pauses: a single-phase car charging on L1 is still paused when L2 or L3 runs out of headroom if the charger is configured as 3-phase.
+
+### Firmware update (from the device log)
+
+GARO pushes firmware to the balancer itself (OCPP `SignedUpdateFirmware`); the balancer downloads it, verifies the signature and installs it. The **Firmware** update entity shows this under **Settings → Updates**:
+
+- **Installed version** from `/config/firmware-version`.
+- **Latest version** from the file name of the latest order in the log (e.g. `garo-entity-3.0.12-4.10.3-imx-r5bf98996f.upd` → `4.10.3`), while it is not yet installed.
+- **Release summary** and the `firmware_status` attribute follow the balancer's reports: *Downloading*, *Downloaded*, *Downloaded and verified, waiting to install*, *Installing*, *Installed* or a failure. *In progress* is set while it installs.
+
+There is no install button: Home Assistant only reports, it never sends the balancer an update command. The order is kept across restarts. The entity uses the same log reading as the DLM sensors and is removed when that is turned off.

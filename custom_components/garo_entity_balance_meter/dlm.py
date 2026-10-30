@@ -9,7 +9,8 @@ No REST endpoint exposes this, so DlmLogFollower tails /log/garoevse.log with
 HTTP Range requests: the first read takes the last INITIAL_TAIL_BYTES, later
 reads fetch only what was appended since. When the log is rotated the server
 answers 416 (offset past the new, smaller file) and the follower starts over
-from the tail.
+from the tail. Firmware update orders and their progress, logged by the
+balancer's OCPP client, are picked up on the way (see firmware.py).
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import aiohttp
+
+from .firmware import FirmwareState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +34,7 @@ _DLM_RE = re.compile(
     r"raw=\(\s*(?P<r1>-?\d+),\s*(?P<r2>-?\d+),\s*(?P<r3>-?\d+)\),\s+"
     r"filtered=\(\s*(?P<f1>-?\d+),\s*(?P<f2>-?\d+),\s*(?P<f3>-?\d+)\)"
 )
+_TS_RE = re.compile(r"^(\S+)\s")
 _CONTENT_RANGE_RE = re.compile(r"bytes\s+(?:(\d+)-\d+|\*)/(\d+)")
 
 
@@ -56,6 +60,16 @@ def parse_dlm_line(line: str) -> DlmReading | None:
         raw=(int(m["r1"]), int(m["r2"]), int(m["r3"])),
         filtered=(int(m["f1"]), int(m["f2"]), int(m["f3"])),
     )
+
+
+def _timestamp(line: str) -> datetime | None:
+    m = _TS_RE.match(line)
+    if not m:
+        return None
+    try:
+        return datetime.fromisoformat(m[1])
+    except ValueError:
+        return None
 
 
 def _parse_content_range(value: str | None) -> tuple[int | None, int | None]:
@@ -89,6 +103,7 @@ class DlmLogFollower:
     offset: int | None = None  # byte offset of the next unread byte; None = tail on next poll
     latest: DlmReading | None = None
     changes: int = 0  # number of times the filtered limit changed since startup
+    firmware: FirmwareState = field(default_factory=FirmwareState)
     _partial: bytes = field(default=b"", repr=False)  # incomplete last line
 
     async def poll(self, session: aiohttp.ClientSession) -> DlmReading | None:
@@ -144,7 +159,10 @@ class DlmLogFollower:
         self._partial = data[last_nl + 1:]
 
         for raw_line in data[: last_nl + 1].splitlines():
-            reading = parse_dlm_line(raw_line.decode("utf-8", errors="replace"))
+            line = raw_line.decode("utf-8", errors="replace")
+            if self.firmware.feed_line(line, _timestamp(line)):
+                continue
+            reading = parse_dlm_line(line)
             if reading is None:
                 continue
             if self.latest is not None and reading.timestamp < self.latest.timestamp:

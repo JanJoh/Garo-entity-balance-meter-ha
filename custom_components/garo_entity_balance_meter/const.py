@@ -1,5 +1,5 @@
 DOMAIN = "garo_entity_balance_meter"
-PLATFORMS: list[str] = ["sensor"]
+PLATFORMS: list[str] = ["sensor", "update"]
 MANUFACTURER = "GARO"
 PRODUCT_NAME = "Entity Balance"
 

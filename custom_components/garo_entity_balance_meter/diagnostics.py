@@ -26,6 +26,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "dlm": None if follower is None else {
             "offset": follower.offset,
             "changes": follower.changes,
+            "firmware": follower.firmware.as_dict(),
             "latest": None if follower.latest is None else {
                 "timestamp": follower.latest.timestamp.isoformat(),
                 "charger": follower.latest.charger,
