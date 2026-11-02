@@ -29,7 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     if follower is None:
         # Log reading turned off in options: without the log there is nothing to report.
         registry = er.async_get(hass)
-        if entity_id := registry.async_get_entity_id("update", DOMAIN, f"garo_{KEY}"):
+        if entity_id := registry.async_get_entity_id("update", DOMAIN, f"{entry.entry_id}_{KEY}"):
             registry.async_remove(entity_id)
         return
     async_add_entities([GaroFirmwareUpdate(data["coordinator"], entry, host, follower.firmware)])
@@ -50,7 +50,7 @@ class GaroFirmwareUpdate(CoordinatorEntity, UpdateEntity):
         self._host = host
         self._live = firmware
         self._restored = FirmwareState()
-        self._attr_unique_id = f"garo_{KEY}"
+        self._attr_unique_id = f"{entry.entry_id}_{KEY}"
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

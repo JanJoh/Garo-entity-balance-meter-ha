@@ -1,9 +1,9 @@
 from __future__ import annotations
 import logging, asyncio, aiohttp
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import aiohttp_client
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import aiohttp_client, entity_registry as er
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
     DOMAIN, PLATFORMS, DATA_KEYS,
@@ -16,10 +16,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """1.1 -> 1.2: move host and credentials out of entry.options into entry.data.
+    """Bring an older config entry up to the current version.
 
+    1.1 -> 1.2: move host and credentials out of entry.options into entry.data.
     Earlier versions of the options flow copied host/username/password into
     entry.options, which Home Assistant exposes unredacted (API, diagnostics).
+
+    1.2 -> 1.3: entity unique IDs were "garo_<key>" for every device, so a second
+    balancer got no entities. They are now "<entry_id>_<key>"; renaming them in
+    the registry keeps entity IDs and history.
     """
     if entry.version > 1:
         return False
@@ -33,6 +38,16 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     data[key] = value
         hass.config_entries.async_update_entry(entry, data=data, options=options, minor_version=2)
         _LOGGER.info("Migrated config entry %s: credentials moved from options to data", entry.entry_id)
+    if entry.minor_version < 3:
+        @callback
+        def _entry_scoped(entity_entry: er.RegistryEntry) -> dict[str, str] | None:
+            if entity_entry.unique_id.startswith("garo_"):
+                return {"new_unique_id": f"{entry.entry_id}_{entity_entry.unique_id[len('garo_'):]}"}
+            return None
+
+        await er.async_migrate_entries(hass, entry.entry_id, _entry_scoped)
+        hass.config_entries.async_update_entry(entry, minor_version=3)
+        _LOGGER.info("Migrated config entry %s: entity unique IDs scoped to the entry", entry.entry_id)
     return True
 
 
@@ -43,10 +58,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = entry.data.get(CONF_USERNAME)
     password = entry.data.get(CONF_PASSWORD)
 
-    if not host or not username or not password:
-        raise ConfigEntryNotReady(
-            "Credentials missing from config entry — use Reconfigure to enter them again"
-        )
+    if not host:
+        raise ConfigEntryNotReady("Host missing from config entry — use Reconfigure to enter it again")
+    if not username or not password:
+        raise ConfigEntryAuthFailed("Credentials missing from config entry")
 
     ignore_tls = entry.options.get(CONF_IGNORE_TLS_ERRORS, entry.data.get(CONF_IGNORE_TLS_ERRORS, True))
     use_http = entry.options.get(CONF_USE_HTTP, entry.data.get(CONF_USE_HTTP, False))
@@ -59,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async with session.get(url, auth=aiohttp.BasicAuth(username, password)) as resp:
                 txt = await resp.text()
                 if resp.status in (401, 403):
-                    raise ConfigEntryNotReady(f"Authentication failed (status {resp.status})")
+                    raise ConfigEntryAuthFailed(f"Authentication failed (status {resp.status})")
                 if resp.status >= 400:
                     raise ConfigEntryNotReady(f"HTTP {resp.status}: {txt[:120]}")
     except (aiohttp.ClientError, asyncio.TimeoutError) as err:

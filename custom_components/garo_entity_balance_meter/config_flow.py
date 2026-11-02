@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging, asyncio, aiohttp, voluptuous as vol
+from collections.abc import Mapping
 from typing import Any
 from homeassistant import config_entries
 from homeassistant.core import callback, HomeAssistant
@@ -46,7 +47,8 @@ async def _async_validate_input(hass: HomeAssistant, data: dict[str, Any]) -> No
 
 class GaroBalanceMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
-    MINOR_VERSION = 2  # 1.2: credentials live only in entry.data (see async_migrate_entry)
+    # 1.2: credentials live only in entry.data; 1.3: entry-scoped entity unique IDs (see async_migrate_entry)
+    MINOR_VERSION = 3
 
     @staticmethod
     @callback
@@ -119,6 +121,38 @@ class GaroBalanceMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_PASSWORD): str,
         })
         return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        """The device rejected the stored credentials."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        entry = self._get_reauth_entry()
+        errors = {}
+        if user_input is not None:
+            settings = {**entry.data, **entry.options}
+            try:
+                await _async_validate_input(self.hass, {**settings, **user_input})
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error validating input")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(entry, data_updates=user_input)
+
+        schema = vol.Schema({
+            vol.Required(CONF_USERNAME, default=(user_input or entry.data).get(CONF_USERNAME, "")): str,
+            vol.Required(CONF_PASSWORD): str,
+        })
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"host": entry.data.get(CONF_HOST, "")},
+        )
 
 
 class GaroBalanceMeterOptionsFlow(config_entries.OptionsFlow):

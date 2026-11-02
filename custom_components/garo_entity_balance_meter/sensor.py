@@ -3,6 +3,7 @@ import logging, asyncio, aiohttp
 from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
@@ -235,6 +236,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             async with asyncio.timeout(15):
                 async with session.get(base_url, auth=aiohttp.BasicAuth(username, password)) as resp:
                     text = await resp.text()
+                    if resp.status in (401, 403):
+                        # Stops polling and asks the user for new credentials (reauth flow).
+                        raise ConfigEntryAuthFailed(f"Authentication failed (status {resp.status})")
                     if resp.status != 200:
                         _LOGGER.warning("Status %s from %s: %s", resp.status, base_url, text[:120])
                     else:
@@ -270,6 +274,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                                         result["energy"] = val
                                     elif meas == "Power.Active.Import":
                                         result["power"] = val
+        except ConfigEntryAuthFailed:
+            raise
         except Exception as e:
             _LOGGER.warning("Energy meter fetch failed: %s", e)
 
@@ -287,6 +293,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
+        config_entry=entry,
         name="garo_entity_balance_meter",
         update_method=_async_update_data,
         update_interval=timedelta(seconds=scan_interval),
@@ -301,7 +308,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         # DLM turned off in options: drop its entities instead of leaving them unavailable.
         registry = er.async_get(hass)
         for key in DLM_SENSOR_MAP:
-            entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"garo_{key}")
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{key}")
             if entity_id:
                 registry.async_remove(entity_id)
     async_add_entities(entities)
@@ -316,7 +323,7 @@ class GaroBalanceSensor(CoordinatorEntity, SensorEntity):
         self._host = host
         info = SENSOR_MAP[key]
         self._attr_name = info["name"]
-        self._attr_unique_id = f"garo_{key}"
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_class = info.get("device_class")
         self._attr_native_unit_of_measurement = info.get("unit")
         self._attr_state_class = info.get("state_class")
@@ -347,7 +354,7 @@ class GaroDlmSensor(CoordinatorEntity, SensorEntity):
         self._follower = follower
         self._phase = DLM_SENSOR_MAP[key]["phase"]
         self._attr_name = DLM_SENSOR_MAP[key]["name"]
-        self._attr_unique_id = f"garo_{key}"
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
 
     def _fresh_reading(self):
         reading = self._follower.latest

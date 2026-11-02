@@ -28,6 +28,14 @@
           "username": "Username",
           "password": "Password"
         }
+      },
+      "reauth_confirm": {
+        "title": "GARO Entity Balance — Sign in again",
+        "description": "The balancer at {host} rejected the stored credentials. Enter them again; they are printed on a sticker on the device.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -38,7 +46,8 @@
     },
     "abort": {
       "already_configured": "This device is already configured.",
-      "reconfigure_successful": "Reconfiguration successful."
+      "reconfigure_successful": "Reconfiguration successful.",
+      "reauth_successful": "Credentials updated."
     }
   },
   "options": {

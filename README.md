@@ -36,10 +36,11 @@ This integration talks to the **load balancer**, not to the EV charger. It measu
 
 ### HACS (recommended)
 
-1. HACS → **Custom repositories** → add `https://github.com/JanJoh/Garo-entity-balance-meter-ha` as type **Integration**
-2. Install **GARO Entity Balance Meter**
-3. Restart Home Assistant
-4. Settings → Devices & Services → **Add integration** → search for *GARO Balance*
+1. In HACS, search for **GARO Entity Balance Meter** and download it
+2. Restart Home Assistant
+3. Settings → Devices & Services → **Add integration** → search for *GARO Balance*
+
+Not listed in HACS yet? Add `https://github.com/JanJoh/Garo-entity-balance-meter-ha` under HACS → **Custom repositories** as type **Integration** first.
 
 ### Manual
 
