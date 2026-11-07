@@ -316,6 +316,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 class GaroBalanceSensor(CoordinatorEntity, SensorEntity):
 
+    _attr_has_entity_name = True
+
     def __init__(self, coordinator, entry, host, key):
         super().__init__(coordinator)
         self._key = key
@@ -342,6 +344,7 @@ class GaroBalanceSensor(CoordinatorEntity, SensorEntity):
 class GaroDlmSensor(CoordinatorEntity, SensorEntity):
     """Per-phase current limit the balancer gives the charger."""
 
+    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
     _attr_state_class = SensorStateClass.MEASUREMENT

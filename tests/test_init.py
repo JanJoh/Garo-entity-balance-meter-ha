@@ -49,13 +49,13 @@ async def test_migration_moves_credentials_out_of_options(hass: HomeAssistant, a
     assert entry.data["password"] == "p"
     assert entry.options["scan_interval"] == 5
 
-    assert hass.states.get("sensor.current_l1").state == "3.2"
-    assert hass.states.get("sensor.dlm_limit_l1").state == "11"
-    assert hass.states.get("sensor.dlm_limit_l3").state == "9"
-    lowest = hass.states.get("sensor.dlm_limit_lowest")
+    assert hass.states.get("sensor.entity_balance_current_l1").state == "3.2"
+    assert hass.states.get("sensor.entity_balance_dlm_limit_l1").state == "11"
+    assert hass.states.get("sensor.entity_balance_dlm_limit_l3").state == "9"
+    lowest = hass.states.get("sensor.entity_balance_dlm_limit_lowest")
     assert lowest.state == "9"
     assert lowest.attributes["limiting_phase"] == "L3"
-    assert hass.states.get("sensor.dlm_limit_l2").attributes["raw"] == 15
+    assert hass.states.get("sensor.entity_balance_dlm_limit_l2").attributes["raw"] == 15
 
 
 async def test_dlm_goes_unavailable_when_stale(hass: HomeAssistant, aioclient_mock):
@@ -66,8 +66,8 @@ async def test_dlm_goes_unavailable_when_stale(hass: HomeAssistant, aioclient_mo
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.dlm_limit_l1").state == "unavailable"
-    assert hass.states.get("sensor.current_l1").state == "3.2"
+    assert hass.states.get("sensor.entity_balance_dlm_limit_l1").state == "unavailable"
+    assert hass.states.get("sensor.entity_balance_current_l1").state == "3.2"
 
 
 async def test_options_flow_never_stores_credentials(hass: HomeAssistant, aioclient_mock):
@@ -85,7 +85,7 @@ async def test_options_flow_never_stores_credentials(hass: HomeAssistant, aiocli
     assert result["type"] == "create_entry"
     assert entry.options == {"scan_interval": 10, "slow_scan_interval": 60, "enable_dlm": False,
                              "ignore_tls_errors": True, "use_http": False}
-    assert hass.states.get("sensor.dlm_limit_l1") is None
+    assert hass.states.get("sensor.entity_balance_dlm_limit_l1") is None
 
 
 async def test_diagnostics_redacts(hass: HomeAssistant, aioclient_mock):
